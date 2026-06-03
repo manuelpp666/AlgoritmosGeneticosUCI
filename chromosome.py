@@ -9,18 +9,18 @@ from copy import deepcopy
 from typing import Optional
 
 from config import (
-    BEDS, BED_TYPE_MAP, MAX_BEDS_ACTIVE, TOTAL_BEDS,
-    PLANNING_HORIZON, POISSON_LAMBDA,
+    CAMAS, MAPA_TIPO_CAMA, CAMAS_ACTIVAS_MAX, TOTAL_CAMAS,
+    HORIZONTE_PLANIFICACIÓN, LAMBDA_POISSON,
 )
-from patients import Patient, generate_emergency_patients
+from patients import Paciente, generar_pacientes_emergencia
 
 
 # ──────────────────────────────────────────────
 #  UTILIDADES
 # ──────────────────────────────────────────────
-def poisson_sample(lam: float, rng: random.Random) -> int:
+def muestra_poisson(lambda_par: float, rng: random.Random) -> int:
     """Generación de muestra Poisson (Knuth)."""
-    L = math.exp(-lam)
+    L = math.exp(-lambda_par)
     k, p = 0, 1.0
     while p > L:
         k += 1
@@ -28,133 +28,133 @@ def poisson_sample(lam: float, rng: random.Random) -> int:
     return k - 1
 
 
-def beds_for_type(patient_type: str) -> list[int]:
+def camas_por_tipo(tipo_paciente: str) -> list[int]:
     """Devuelve lista de IDs de cama compatibles con el tipo de paciente."""
-    return list(BEDS[patient_type])
+    return list(CAMAS[tipo_paciente])
 
 
-def assign_bed(patient: Patient, occupied: set[int]) -> Optional[int]:
+def asignar_cama(paciente: Paciente, ocupadas: set[int]) -> Optional[int]:
     """
     Intenta asignar la primera cama libre del tipo correcto.
     Retorna el ID de cama o None si no hay disponible.
     """
-    for bid in beds_for_type(patient.patient_type):
-        if bid not in occupied and bid <= MAX_BEDS_ACTIVE:
-            return bid
+    for id_cama in camas_por_tipo(paciente.tipo_paciente):
+        if id_cama not in ocupadas and id_cama <= CAMAS_ACTIVAS_MAX:
+            return id_cama
     return None
 
 
 # ──────────────────────────────────────────────
 #  CROMOSOMA
 # ──────────────────────────────────────────────
-class Individual:
+class Individuo:
     """
     Un individuo = plan semanal de 7 días para la UCI.
 
     Atributos:
-        schedule  : dict[day → list[Patient]]   plan electivos por día
-        fitness   : (f1, f2, f3) calculado tras evaluate()
-        rank      : frente de Pareto
-        crowding  : distancia de hacinamiento NSGA-II
+        programa  : dict[día → list[Paciente]]   plan electivos por día
+        aptitud   : (f1, f2, f3) calculado tras evaluar()
+        rango      : frente de Pareto
+        hacinamiento  : distancia de hacinamiento NSGA-II
     """
 
     def __init__(self):
-        self.schedule: dict[int, list[Patient]] = {d: [] for d in range(1, PLANNING_HORIZON + 1)}
-        self.fitness:  tuple[float, float, float] = (0.0, 0.0, 0.0)
-        self.rank:     int   = 0
-        self.crowding: float = 0.0
+        self.programa: dict[int, list[Paciente]] = {d: [] for d in range(1, HORIZONTE_PLANIFICACIÓN + 1)}
+        self.aptitud:  tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self.rango:     int   = 0
+        self.hacinamiento: float = 0.0
 
     # ── Construcción ──────────────────────────
     @classmethod
-    def create_random(
+    def crear_aleatorio(
         cls,
-        current_patients: list[Patient],
-        elective_waitlist: list[Patient],
+        pacientes_actuales: list[Paciente],
+        lista_espera_electivos: list[Paciente],
         rng: random.Random,
-    ) -> "Individual":
+    ) -> "Individuo":
         """
         Genera un individuo aleatorio respetando la jerarquía de asignación.
         """
         ind = cls()
-        elective_pool = [p.clone() for p in elective_waitlist]
-        rng.shuffle(elective_pool)
+        grupo_electivos = [p.clonar() for p in lista_espera_electivos]
+        rng.shuffle(grupo_electivos)
 
         # Puntero a los electivos aún no asignados
-        elective_idx = 0
+        índice_electivo = 0
 
         # Estado de la UCI: pacientes activos que "arrastran" al día siguiente
-        active_patients: list[Patient] = [p.clone() for p in current_patients]
+        pacientes_activos: list[Paciente] = [p.clonar() for p in pacientes_actuales]
 
-        for day in range(1, PLANNING_HORIZON + 1):
-            occupied: set[int] = set()
+        for día in range(1, HORIZONTE_PLANIFICACIÓN + 1):
+            ocupadas: set[int] = set()
 
             # Paso 1: pacientes actuales (inamovibles)
-            still_active: list[Patient] = []
-            for p in active_patients:
-                if p.remaining_los > 0:
-                    bid = assign_bed(p, occupied)
-                    if bid is not None:
-                        p.assigned_bed = bid
-                        occupied.add(bid)
-                        still_active.append(p)
+            aún_activos: list[Paciente] = []
+            for p in pacientes_activos:
+                if p.los_restante > 0:
+                    id_cama = asignar_cama(p, ocupadas)
+                    if id_cama is not None:
+                        p.cama_asignada = id_cama
+                        ocupadas.add(id_cama)
+                        aún_activos.append(p)
                     # Si no hay cama del tipo correcto disponible, caso excepcional ignorado
 
             # Paso 2: emergencias (Poisson)
-            n_emerg = poisson_sample(POISSON_LAMBDA, rng)
-            emergencies = generate_emergency_patients(rng, day, n_emerg)
-            admitted_emerg: list[Patient] = []
-            for ep in emergencies:
-                bid = assign_bed(ep, occupied)
-                if bid is not None:
-                    ep.assigned_bed = bid
-                    ep.admission_day = day
-                    occupied.add(bid)
-                    admitted_emerg.append(ep)
+            n_emergencias = muestra_poisson(LAMBDA_POISSON, rng)
+            emergencias = generar_pacientes_emergencia(rng, día, n_emergencias)
+            emergencias_admitidas: list[Paciente] = []
+            for ep in emergencias:
+                id_cama = asignar_cama(ep, ocupadas)
+                if id_cama is not None:
+                    ep.cama_asignada = id_cama
+                    ep.día_ingreso = día
+                    ocupadas.add(id_cama)
+                    emergencias_admitidas.append(ep)
 
             # Paso 3: electivos (rellenar huecos)
-            day_electives: list[Patient] = []
-            while elective_idx < len(elective_pool):
-                ep = elective_pool[elective_idx]
-                bid = assign_bed(ep, occupied)
-                if bid is not None:
-                    ep_copy = ep.clone()
-                    ep_copy.assigned_bed  = bid
-                    ep_copy.admission_day = day
-                    ep_copy.delay = max(0, day - (ep.scheduled_day or day))
-                    occupied.add(bid)
-                    day_electives.append(ep_copy)
-                    elective_idx += 1
+            electivos_día: list[Paciente] = []
+            while índice_electivo < len(grupo_electivos):
+                ep = grupo_electivos[índice_electivo]
+                id_cama = asignar_cama(ep, ocupadas)
+                if id_cama is not None:
+                    ep_copia = ep.clonar()
+                    ep_copia.cama_asignada  = id_cama
+                    ep_copia.día_ingreso = día
+                    ep_copia.retraso = max(0, día - (ep.día_programado or día))
+                    ocupadas.add(id_cama)
+                    electivos_día.append(ep_copia)
+                    índice_electivo += 1
                 else:
                     break  # No quedan camas disponibles
 
-            ind.schedule[day] = day_electives
+            ind.programa[día] = electivos_día
 
             # Actualizar estado para el día siguiente
-            next_active: list[Patient] = []
-            for p in still_active:
-                p.remaining_los -= 1
-                if p.remaining_los > 0:
-                    next_active.append(p)
-            for p in admitted_emerg:
-                p.remaining_los -= 1
-                if p.remaining_los > 0:
-                    p.category = "current"
-                    next_active.append(p)
-            for p in day_electives:
-                p.remaining_los -= 1
-                if p.remaining_los > 0:
-                    p.category = "current"
-                    next_active.append(p)
+            próximos_activos: list[Paciente] = []
+            for p in aún_activos:
+                p.los_restante -= 1
+                if p.los_restante > 0:
+                    próximos_activos.append(p)
+            for p in emergencias_admitidas:
+                p.los_restante -= 1
+                if p.los_restante > 0:
+                    p.categoría = "actual"
+                    próximos_activos.append(p)
+            for p in electivos_día:
+                p.los_restante -= 1
+                if p.los_restante > 0:
+                    p.categoría = "actual"
+                    próximos_activos.append(p)
 
-            active_patients = next_active
+            pacientes_activos = próximos_activos
 
         return ind
 
     # ── Evaluación (fitness) ──────────────────
-    def evaluate(
+    def evaluar(
         self,
-        current_patients: list[Patient],
-        elective_waitlist: list[Patient],
+        pacientes_actuales: list[Paciente],
+        lista_espera_electivos: list[Paciente],
         rng: random.Random,
     ) -> None:
         """
@@ -163,113 +163,113 @@ class Individual:
         f2 = índice retraso  (minimizar)
         f3 = tasa admisión emergencias (maximizar → 1-f3)
         """
-        total_beds_used   = 0
-        total_delay_score = 0.0
-        total_emerg_rate  = 0.0
-        max_possible_emerg_total = 0
+        camas_totales_usadas   = 0
+        puntuación_retraso_total = 0.0
+        tasa_emergencias_total  = 0.0
+        total_emergencias_máximo_posible = 0
 
-        active_patients: list[Patient] = [p.clone() for p in current_patients]
+        pacientes_activos: list[Paciente] = [p.clonar() for p in pacientes_actuales]
 
-        # Reconstituimos un pool de electivos usando el schedule
-        scheduled_ids = {
-            day: [p.patient_id for p in plist]
-            for day, plist in self.schedule.items()
+        # Reconstituimos un pool de electivos usando el programa
+        ids_programados = {
+            día: [p.id_paciente for p in plist]
+            for día, plist in self.programa.items()
         }
 
-        for day in range(1, PLANNING_HORIZON + 1):
-            occupied: set[int] = set()
-            day_patients_count = 0
+        for día in range(1, HORIZONTE_PLANIFICACIÓN + 1):
+            ocupadas: set[int] = set()
+            cuenta_pacientes_día = 0
 
             # Paso 1: actuales
-            still_active = []
-            for p in active_patients:
-                if p.remaining_los > 0:
-                    bid = assign_bed(p, occupied)
-                    if bid is not None:
-                        occupied.add(bid)
-                        day_patients_count += 1
-                        still_active.append(p)
+            aún_activos = []
+            for p in pacientes_activos:
+                if p.los_restante > 0:
+                    id_cama = asignar_cama(p, ocupadas)
+                    if id_cama is not None:
+                        ocupadas.add(id_cama)
+                        cuenta_pacientes_día += 1
+                        aún_activos.append(p)
 
             # Paso 2: emergencias
-            n_emerg = poisson_sample(POISSON_LAMBDA, rng)
-            emergencies = generate_emergency_patients(rng, day, n_emerg)
+            n_emergencias = muestra_poisson(LAMBDA_POISSON, rng)
+            emergencias = generar_pacientes_emergencia(rng, día, n_emergencias)
             # Máximo posible según Poisson (usamos techo de 3*lambda como límite)
-            max_possible = min(int(3 * POISSON_LAMBDA), MAX_BEDS_ACTIVE)
-            max_possible_emerg_total += max_possible
+            máximo_posible = min(int(3 * LAMBDA_POISSON), CAMAS_ACTIVAS_MAX)
+            total_emergencias_máximo_posible += máximo_posible
 
-            admitted_emerg = []
-            for ep in emergencies:
-                bid = assign_bed(ep, occupied)
-                if bid is not None:
-                    ep.assigned_bed = bid
-                    ep.admission_day = day
-                    occupied.add(bid)
-                    day_patients_count += 1
-                    admitted_emerg.append(ep)
+            emergencias_admitidas = []
+            for ep in emergencias:
+                id_cama = asignar_cama(ep, ocupadas)
+                if id_cama is not None:
+                    ep.cama_asignada = id_cama
+                    ep.día_ingreso = día
+                    ocupadas.add(id_cama)
+                    cuenta_pacientes_día += 1
+                    emergencias_admitidas.append(ep)
 
-            emerg_rate_day = len(admitted_emerg) / max_possible if max_possible > 0 else 1.0
-            total_emerg_rate += emerg_rate_day
+            tasa_emergencias_día = len(emergencias_admitidas) / máximo_posible if máximo_posible > 0 else 1.0
+            tasa_emergencias_total += tasa_emergencias_día
 
-            # Paso 3: electivos (los del schedule de este individuo)
-            day_elective_ids = scheduled_ids.get(day, [])
-            # Reconstruye pacientes electivos del schedule
-            elective_lookup = {p.patient_id: p for p in elective_waitlist}
-            day_electives_admitted = []
-            for pid in day_elective_ids:
-                if pid in elective_lookup:
-                    ep = elective_lookup[pid].clone()
-                    bid = assign_bed(ep, occupied)
-                    if bid is not None:
-                        ep.assigned_bed  = bid
-                        ep.admission_day = day
-                        ep.delay = max(0, day - (ep.scheduled_day or day))
-                        occupied.add(bid)
-                        day_patients_count += 1
-                        total_delay_score += ep.delay * ep.loss_of_chance
-                        day_electives_admitted.append(ep)
+            # Paso 3: electivos (los del programa de este individuo)
+            ids_electivos_día = ids_programados.get(día, [])
+            # Reconstruye pacientes electivos del programa
+            búsqueda_electivos = {p.id_paciente: p for p in lista_espera_electivos}
+            electivos_día_admitidos = []
+            for id_pac in ids_electivos_día:
+                if id_pac in búsqueda_electivos:
+                    ep = búsqueda_electivos[id_pac].clonar()
+                    id_cama = asignar_cama(ep, ocupadas)
+                    if id_cama is not None:
+                        ep.cama_asignada  = id_cama
+                        ep.día_ingreso = día
+                        ep.retraso = max(0, día - (ep.día_programado or día))
+                        ocupadas.add(id_cama)
+                        cuenta_pacientes_día += 1
+                        puntuación_retraso_total += ep.retraso * ep.pérdida_oportunidad
+                        electivos_día_admitidos.append(ep)
 
-            total_beds_used += day_patients_count
+            camas_totales_usadas += cuenta_pacientes_día
 
             # Avanzar estado
-            next_active = []
-            for p in still_active:
-                p.remaining_los -= 1
-                if p.remaining_los > 0:
-                    next_active.append(p)
-            for p in admitted_emerg:
-                p.remaining_los -= 1
-                if p.remaining_los > 0:
-                    p.category = "current"
-                    next_active.append(p)
-            for p in day_electives_admitted:
-                p.remaining_los -= 1
-                if p.remaining_los > 0:
-                    p.category = "current"
-                    next_active.append(p)
+            próximos_activos = []
+            for p in aún_activos:
+                p.los_restante -= 1
+                if p.los_restante > 0:
+                    próximos_activos.append(p)
+            for p in emergencias_admitidas:
+                p.los_restante -= 1
+                if p.los_restante > 0:
+                    p.categoría = "actual"
+                    próximos_activos.append(p)
+            for p in electivos_día_admitidos:
+                p.los_restante -= 1
+                if p.los_restante > 0:
+                    p.categoría = "actual"
+                    próximos_activos.append(p)
 
-            active_patients = next_active
+            pacientes_activos = próximos_activos
 
         # Cálculo de métricas finales
-        max_possible_beds = MAX_BEDS_ACTIVE * PLANNING_HORIZON
-        f1_occ   = total_beds_used / max_possible_beds        # 0..1 (maximizar)
-        f2_delay = total_delay_score                           # minimizar
-        f3_emerg = total_emerg_rate / PLANNING_HORIZON        # 0..1 (maximizar)
+        camas_máximo_posible = CAMAS_ACTIVAS_MAX * HORIZONTE_PLANIFICACIÓN
+        f1_ocup   = camas_totales_usadas / camas_máximo_posible        # 0..1 (maximizar)
+        f2_retraso = puntuación_retraso_total                           # minimizar
+        f3_emerg = tasa_emergencias_total / HORIZONTE_PLANIFICACIÓN        # 0..1 (maximizar)
 
         # Convertimos todo a minimización para NSGA-II
-        self.fitness = (1.0 - f1_occ, f2_delay, 1.0 - f3_emerg)
+        self.aptitud = (1.0 - f1_ocup, f2_retraso, 1.0 - f3_emerg)
 
     # ── Copia ────────────────────────────────
-    def clone(self) -> "Individual":
-        new_ind = Individual()
-        new_ind.schedule = {
-            day: [p.clone() for p in plist]
-            for day, plist in self.schedule.items()
+    def clonar(self) -> "Individuo":
+        nuevo_ind = Individuo()
+        nuevo_ind.programa = {
+            día: [p.clonar() for p in plist]
+            for día, plist in self.programa.items()
         }
-        new_ind.fitness  = self.fitness
-        new_ind.rank     = self.rank
-        new_ind.crowding = self.crowding
-        return new_ind
+        nuevo_ind.aptitud  = self.aptitud
+        nuevo_ind.rango     = self.rango
+        nuevo_ind.hacinamiento = self.hacinamiento
+        return nuevo_ind
 
     def __repr__(self) -> str:
-        return (f"Individual(rank={self.rank}, "
-                f"f=({self.fitness[0]:.3f},{self.fitness[1]:.3f},{self.fitness[2]:.3f}))")
+        return (f"Individuo(rango={self.rango}, "
+                f"apt=({self.aptitud[0]:.3f},{self.aptitud[1]:.3f},{self.aptitud[2]:.3f}))")

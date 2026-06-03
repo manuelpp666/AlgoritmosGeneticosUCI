@@ -6,50 +6,50 @@ Hospital Regional de Lambayeque
 # ──────────────────────────────────────────────
 #  ESTRUCTURA DE CAMAS
 # ──────────────────────────────────────────────
-BEDS = {
-    "adult":    list(range(1,  19)),   # camas  1-18  adulto
-    "pediatric":list(range(19, 23)),   # camas 19-22  pediátrico
+CAMAS = {
+    "adulto":    list(range(1,  19)),   # camas  1-18  adulto
+    "pediátrico":list(range(19, 23)),   # camas 19-22  pediátrico
     "neonatal": list(range(23, 29)),   # camas 23-28  neonatal
 }
-TOTAL_BEDS = sum(len(v) for v in BEDS.values())   # 28
+TOTAL_CAMAS = sum(len(v) for v in CAMAS.values())   # 28
 
-BED_TYPE_MAP: dict[int, str] = {}
-for btype, ids in BEDS.items():
-    for bid in ids:
-        BED_TYPE_MAP[bid] = btype
+MAPA_TIPO_CAMA: dict[int, str] = {}
+for tipo_cama, ids in CAMAS.items():
+    for id_cama in ids:
+        MAPA_TIPO_CAMA[id_cama] = tipo_cama
 
 # ──────────────────────────────────────────────
 #  REGLA MÉDICO / PACIENTE  (1:6)
 # ──────────────────────────────────────────────
-DOCTORS_PER_SHIFT_OPTIONS = {5: 28, 4: 24, 3: 18}   # médicos → camas_max
-DEFAULT_DOCTORS = 5
-MAX_BEDS_ACTIVE = DOCTORS_PER_SHIFT_OPTIONS[DEFAULT_DOCTORS]
+OPCIONES_MÉDICOS_TURNO = {5: 28, 4: 24, 3: 18}   # médicos → camas_max
+MÉDICOS_DEFECTO = 5
+CAMAS_ACTIVAS_MAX = OPCIONES_MÉDICOS_TURNO[MÉDICOS_DEFECTO]
 
 # ──────────────────────────────────────────────
 #  PARÁMETROS DEL ALGORITMO GENÉTICO
 # ──────────────────────────────────────────────
-POPULATION_SIZE   = 100
-MAX_GENERATIONS   = 200
-CROSSOVER_RATE    = 0.9
-MUTATION_RATE     = 0.2
-PLANNING_HORIZON  = 7          # días de planificación
+TAMAÑO_POBLACIÓN   = 100
+GENERACIONES_MAX   = 200
+TASA_CRUZAMIENTO    = 0.9
+TASA_MUTACIÓN     = 0.2
+HORIZONTE_PLANIFICACIÓN  = 7          # días de planificación
 
 # ──────────────────────────────────────────────
 #  POISSON: llegadas diarias de emergencias
 # ──────────────────────────────────────────────
-POISSON_LAMBDA = 3.0           # media de llegadas de emergencia por día
+LAMBDA_POISSON = 3.0           # media de llegadas de emergencia por día
 
 # ──────────────────────────────────────────────
-#  LOSS OF CHANCE  (gravedad electivos)
+#  PÉRDIDA DE OPORTUNIDAD  (gravedad electivos)
 # ──────────────────────────────────────────────
-LOSS_OF_CHANCE_VALUES = [0.1, 0.5, 0.9]
+VALORES_PÉRDIDA_OPORTUNIDAD = [0.1, 0.5, 0.9]
 
 # ──────────────────────────────────────────────
 #  TIPO DE PACIENTE  (categorías UCI)
 # ──────────────────────────────────────────────
-PATIENT_TYPES = ["adult", "pediatric", "neonatal"]
+TIPOS_PACIENTE = ["adulto", "pediátrico", "neonatal"]
 
 # ──────────────────────────────────────────────
-#  SEEDS  (reproducibilidad)
+#  SEMILLA  (reproducibilidad)
 # ──────────────────────────────────────────────
-RANDOM_SEED = 42
+SEMILLA_ALEATORIA = 42
