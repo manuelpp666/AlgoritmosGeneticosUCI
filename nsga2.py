@@ -118,20 +118,6 @@ def selección_torneo(
     return torneo_hacinado(población[i], población[j])
 
 
-# ══════════════════════════════════════════════
-#  CRUZAMIENTO
-# ══════════════════════════════════════════════
-def _contar_camas_día(
-    día: int,
-    electivos_día: list[Paciente],
-    arrastrados: dict[int, list[Paciente]],
-) -> int:
-    """
-    Cuenta camas ocupadas para un día dado considerando los pacientes
-    arrastrados + los electivos programados ese día.
-    """
-    return len(arrastrados.get(día, [])) + len(electivos_día)
-
 
 def cruzamiento(
     progenitor1: Individuo,
