@@ -1,119 +1,186 @@
 """
-main.py — Punto de entrada del sistema AG-UCI.
-
-Hospital Regional Lambayeque – Optimización de Asignación de Camas UCI
+main.py - Punto de entrada principal
+Algoritmo Genético NSGA-II para Asignación de Camas UCI
+Hospital Regional de Lambayeque
 
 Uso:
-    python main.py                    # 40 pacientes, semilla aleatoria
-    python main.py --pacientes 50     # 50 pacientes en lista de espera
-    python main.py --semilla 42       # resultado reproducible
-    python main.py --generaciones 200 # más generaciones
-    python main.py --sin-graficas     # omitir matplotlib
+    python main.py                    # Ejecutar con datos simulados
+    python main.py --gens 50          # Reducir generaciones (prueba rápida)
+    python main.py --doctors 4        # Turno con 4 médicos (máx 24 camas)
+    python main.py --no-plots         # Sin gráficos
 """
-
+from __future__ import annotations
 import argparse
-import time
-import sys
 import os
+import sys
+import random
+import time
 
-# Asegurar que el directorio actual esté en sys.path
+# ── Asegurar que el directorio del proyecto esté en sys.path ──
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from pacientes  import generar_lista_espera, mostrar_resumen
-from genetico   import ejecutar_ag
-from resultados import (
-    decodificar_solucion, imprimir_reporte,
-    graficar_evolucion, graficar_gantt_camas, graficar_ocupacion_diaria,
+from config import (
+    POPULATION_SIZE, MAX_GENERATIONS,
+    DOCTORS_PER_SHIFT_OPTIONS, RANDOM_SEED,
 )
-from config import NUM_GENERACIONES, TAMANIO_POBLACION
+import config as cfg
+from patients import generate_current_patients, generate_elective_waitlist
+from engine import NSGAII_UCI
+from visualize import (
+    print_pareto_summary,
+    print_schedule,
+    plot_pareto_front,
+    plot_convergence,
+    plot_bed_occupancy_heatmap,
+)
 
 
-def barra_progreso(gen: int, total: int, mejor: float, avg: float) -> None:
-    """Muestra progreso en consola con barra animada."""
-    pct    = gen / total
-    ancho  = 35
-    lleno  = int(ancho * pct)
-    barra  = "█" * lleno + "░" * (ancho - lleno)
-    print(
-        f"\r  Gen {gen:>4}/{total}  [{barra}]  "
-        f"Mejor: {mejor:>9.2f}  Avg: {avg:>9.2f}  ",
-        end="", flush=True
+# ══════════════════════════════════════════════
+#  BANNER
+# ══════════════════════════════════════════════
+BANNER = """
+╔══════════════════════════════════════════════════════════════╗
+║      NSGA-II · Optimización UCI · Hospital Lambayeque        ║
+║      28 camas  |  Adulto / Pediátrico / Neonatal             ║
+╚══════════════════════════════════════════════════════════════╝
+"""
+
+
+# ══════════════════════════════════════════════
+#  ARGPARSE
+# ══════════════════════════════════════════════
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="NSGA-II UCI - Hospital Lambayeque")
+    p.add_argument("--gens",     type=int, default=MAX_GENERATIONS,
+                   help=f"Generaciones máximas (default: {MAX_GENERATIONS})")
+    p.add_argument("--pop",      type=int, default=POPULATION_SIZE,
+                   help=f"Tamaño de población (default: {POPULATION_SIZE})")
+    p.add_argument("--doctors",  type=int, choices=[3, 4, 5], default=5,
+                   help="Médicos por turno: 3→18 camas, 4→24, 5→28 (default: 5)")
+    p.add_argument("--seed",     type=int, default=RANDOM_SEED,
+                   help=f"Semilla aleatoria (default: {RANDOM_SEED})")
+    p.add_argument("--no-plots", action="store_true",
+                   help="No generar gráficos")
+    p.add_argument("--out-dir",  type=str, default="results",
+                   help="Directorio de salida (default: results)")
+    return p.parse_args()
+
+
+# ══════════════════════════════════════════════
+#  MAIN
+# ══════════════════════════════════════════════
+def main() -> None:
+    args = parse_args()
+    print(BANNER)
+
+    # ── Aplicar configuración dinámica ──
+    cfg.MAX_GENERATIONS  = args.gens
+    cfg.POPULATION_SIZE  = args.pop
+    cfg.MAX_BEDS_ACTIVE  = DOCTORS_PER_SHIFT_OPTIONS[args.doctors]
+    cfg.DEFAULT_DOCTORS  = args.doctors
+
+    os.makedirs(args.out_dir, exist_ok=True)
+
+    print(f"  Médicos por turno : {args.doctors}  →  máx {cfg.MAX_BEDS_ACTIVE} camas activas")
+    print(f"  Generaciones      : {args.gens}")
+    print(f"  Población         : {args.pop}")
+    print(f"  Semilla aleatoria : {args.seed}")
+    print()
+
+    # ── Generar datos hospitalarios ──
+    rng = random.Random(args.seed)
+    current_patients  = generate_current_patients(rng)
+    elective_waitlist = generate_elective_waitlist(rng, n=40)
+
+    print(f"  Pacientes actuales en UCI : {len(current_patients)}")
+    print(f"  Pacientes en lista espera : {len(elective_waitlist)}")
+    print()
+
+    # ── Mostrar distribución actual de pacientes ──
+    from config import BEDS
+    for ptype in ["adult", "pediatric", "neonatal"]:
+        n  = sum(1 for p in current_patients if p.patient_type == ptype)
+        cap = len(BEDS[ptype])
+        print(f"  UCI {ptype.upper():<12}: {n}/{cap} camas ocupadas")
+    print()
+
+    # ── Ejecutar NSGA-II ──
+    t_start = time.time()
+    engine = NSGAII_UCI(
+        current_patients  = current_patients,
+        elective_waitlist = elective_waitlist,
+        seed              = args.seed,
     )
-    if gen == total:
-        print()  # salto de línea al terminar
+    pareto = engine.run(verbose=True)
+    elapsed = time.time() - t_start
+
+    print(f"\n  Tiempo total: {elapsed:.1f}s")
+
+    # ── Reporte en consola ──
+    print_pareto_summary(pareto)
+
+    # ── Mejor solución por ocupación ──
+    if pareto:
+        best_occ = min(pareto, key=lambda x: x.fitness[0])   # mínimo = máx ocupación
+        print_schedule(best_occ, title="Mejor Agenda (mayor ocupación)")
+
+    # ── Gráficos ──
+    if not args.no_plots:
+        plot_pareto_front(pareto, out_dir=args.out_dir)
+        plot_convergence(engine.history, out_dir=args.out_dir)
+        if pareto:
+            best_occ = min(pareto, key=lambda x: x.fitness[0])
+            plot_bed_occupancy_heatmap(best_occ, out_dir=args.out_dir)
+        print(f"\n  Gráficos guardados en: ./{args.out_dir}/")
+
+    # ── Exportar resultados CSV ──
+    _export_csv(pareto, engine.history, args.out_dir)
+
+    print("\n  ✓ Proceso completado.\n")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="AG-UCI: Optimización de Asignación de Camas UCI – HRL"
-    )
-    parser.add_argument("--pacientes",     type=int,  default=40,
-                        help="Número de pacientes en lista de espera (default: 40)")
-    parser.add_argument("--semilla",       type=int,  default=None,
-                        help="Semilla aleatoria para reproducibilidad")
-    parser.add_argument("--generaciones",  type=int,  default=NUM_GENERACIONES,
-                        help=f"Número de generaciones (default: {NUM_GENERACIONES})")
-    parser.add_argument("--poblacion",     type=int,  default=TAMANIO_POBLACION,
-                        help=f"Tamaño de población (default: {TAMANIO_POBLACION})")
-    parser.add_argument("--sin-graficas",  action="store_true",
-                        help="Omitir la generación de gráficas matplotlib")
-    args = parser.parse_args()
+# ══════════════════════════════════════════════
+#  EXPORTAR CSV
+# ══════════════════════════════════════════════
+def _export_csv(
+    pareto:  list,
+    history: list[dict],
+    out_dir: str,
+) -> None:
+    import csv
 
-    # Actualizar parámetros si se pasan por argumento
-    import config as cfg
-    cfg.NUM_GENERACIONES   = args.generaciones
-    cfg.TAMANIO_POBLACION  = args.poblacion
+    # Frente de Pareto
+    pareto_path = os.path.join(out_dir, "pareto_solutions.csv")
+    with open(pareto_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["#", "Ocupacion_%", "Indice_Retraso", "Tasa_Emergencias_%", "Rank"])
+        for i, ind in enumerate(pareto, 1):
+            writer.writerow([
+                i,
+                round((1 - ind.fitness[0]) * 100, 2),
+                round(ind.fitness[1], 4),
+                round((1 - ind.fitness[2]) * 100, 2),
+                ind.rank,
+            ])
+    print(f"  Pareto CSV guardado: {pareto_path}")
 
-    print("\n" + "═" * 70)
-    print("  🏥  AG-UCI – Algoritmo Genético para Asignación de Camas UCI")
-    print("       Hospital Regional Lambayeque")
-    print("═" * 70)
-    print(f"  Pacientes en lista : {args.pacientes}")
-    print(f"  Generaciones       : {args.generaciones}")
-    print(f"  Tamaño población   : {args.poblacion}")
-    print(f"  Semilla            : {args.semilla if args.semilla else 'aleatoria'}")
-    print("═" * 70)
-
-    # ── 1. Generar lista de espera ────────────────────────────────
-    print("\n📥 Generando lista de espera de pacientes...")
-    pacientes = generar_lista_espera(n_pacientes=args.pacientes, semilla=args.semilla)
-    mostrar_resumen(pacientes)
-
-    # ── 2. Ejecutar Algoritmo Genético ────────────────────────────
-    print(f"\n🧬 Iniciando Algoritmo Genético ({args.generaciones} generaciones)...\n")
-    t_inicio = time.time()
-
-    total_gen = args.generaciones
-    def cb(gen, mejor, avg):
-        barra_progreso(gen, total_gen, mejor, avg)
-
-    mejor_cromosoma, mejor_fitness, historial = ejecutar_ag(
-        pacientes=pacientes,
-        callback_generacion=cb,
-    )
-
-    t_total = time.time() - t_inicio
-    print(f"\n  ✅ Optimización completada en {t_total:.2f} s")
-    print(f"  🏆 Mejor fitness alcanzado: {mejor_fitness:,.2f}")
-
-    # ── 3. Decodificar y reportar solución ────────────────────────
-    print("\n📋 Decodificando solución óptima...\n")
-    solucion = decodificar_solucion(mejor_cromosoma, pacientes)
-    imprimir_reporte(solucion, mejor_fitness)
-
-    # ── 4. Gráficas ───────────────────────────────────────────────
-    if not args.sin_graficas:
-        print("\n📊 Generando visualizaciones...")
-        graficar_evolucion(historial,       ruta_salida="evolucion_fitness.png")
-        graficar_gantt_camas(solucion,      ruta_salida="gantt_camas.png")
-        graficar_ocupacion_diaria(solucion, ruta_salida="ocupacion_diaria.png")
-        print("\n  Gráficas guardadas en el directorio actual.")
-    else:
-        print("\n  ⏭️  Gráficas omitidas (--sin-graficas).")
-
-    print("\n" + "═" * 70)
-    print("  Ejecución finalizada. ¡Éxito!")
-    print("═" * 70 + "\n")
+    # Convergencia
+    conv_path = os.path.join(out_dir, "convergence.csv")
+    if history:
+        with open(conv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Generacion", "Pareto_Size", "Best_Occ_%",
+                             "Avg_Occ_%", "Best_Delay", "Best_Emerg_%"])
+            for h in history:
+                writer.writerow([
+                    h.get("generation"),
+                    h.get("pareto_size"),
+                    round(h.get("best_occ", 0) * 100, 2),
+                    round(h.get("avg_occ",  0) * 100, 2),
+                    round(h.get("best_delay", 0), 4),
+                    round(h.get("best_emerg", 0) * 100, 2),
+                ])
+        print(f"  Convergencia CSV guardada: {conv_path}")
 
 
 if __name__ == "__main__":

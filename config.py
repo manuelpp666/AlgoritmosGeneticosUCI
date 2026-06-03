@@ -1,70 +1,55 @@
 """
-config.py — Parámetros globales del sistema UCI del Hospital Regional Lambayeque.
+config.py - Configuración global del sistema UCI NSGA-II
+Hospital Regional de Lambayeque
 """
 
-# ─────────────────────────────────────────────
-#  CAMAS UCI – Hospital Regional Lambayeque
-# ─────────────────────────────────────────────
-TOTAL_CAMAS = 28
-
-# Camas 1-18: Adulto | 19-22: Pediátrica | 23-28: Neonatal
-CAMAS = {}
-for i in range(1, 19):
-    CAMAS[i] = "Adulto"
-for i in range(19, 23):
-    CAMAS[i] = "Pediatrica"
-for i in range(23, 29):
-    CAMAS[i] = "Neonatal"
-
-# Camas agrupadas por especialidad
-CAMAS_POR_TIPO = {
-    "Adulto":     [i for i, t in CAMAS.items() if t == "Adulto"],
-    "Pediatrica": [i for i, t in CAMAS.items() if t == "Pediatrica"],
-    "Neonatal":   [i for i, t in CAMAS.items() if t == "Neonatal"],
+# ──────────────────────────────────────────────
+#  ESTRUCTURA DE CAMAS
+# ──────────────────────────────────────────────
+BEDS = {
+    "adult":    list(range(1,  19)),   # camas  1-18  adulto
+    "pediatric":list(range(19, 23)),   # camas 19-22  pediátrico
+    "neonatal": list(range(23, 29)),   # camas 23-28  neonatal
 }
+TOTAL_BEDS = sum(len(v) for v in BEDS.values())   # 28
 
-# ─────────────────────────────────────────────
-#  RESTRICCIÓN DE RECURSO DUAL (médicos/turno)
-# ─────────────────────────────────────────────
-CAPACIDAD_POR_MEDICOS = {5: 28, 4: 24, 3: 18}
+BED_TYPE_MAP: dict[int, str] = {}
+for btype, ids in BEDS.items():
+    for bid in ids:
+        BED_TYPE_MAP[bid] = btype
 
-# Médicos disponibles por día (lun=1 … dom=7)
-# Puedes modificar este diccionario según la realidad del hospital
-MEDICOS_POR_DIA = {
-    1: 5,  # lunes
-    2: 5,  # martes
-    3: 4,  # miércoles
-    4: 5,  # jueves
-    5: 5,  # viernes
-    6: 3,  # sábado
-    7: 3,  # domingo
-}
+# ──────────────────────────────────────────────
+#  REGLA MÉDICO / PACIENTE  (1:6)
+# ──────────────────────────────────────────────
+DOCTORS_PER_SHIFT_OPTIONS = {5: 28, 4: 24, 3: 18}   # médicos → camas_max
+DEFAULT_DOCTORS = 5
+MAX_BEDS_ACTIVE = DOCTORS_PER_SHIFT_OPTIONS[DEFAULT_DOCTORS]
 
-def capacidad_dia(dia: int) -> int:
-    """Devuelve la capacidad máxima de camas operativas para un día dado."""
-    medicos = MEDICOS_POR_DIA.get(dia, 5)
-    return CAPACIDAD_POR_MEDICOS.get(medicos, 28)
-
-# ─────────────────────────────────────────────
+# ──────────────────────────────────────────────
 #  PARÁMETROS DEL ALGORITMO GENÉTICO
-# ─────────────────────────────────────────────
-TAMANIO_POBLACION   = 120
-NUM_GENERACIONES    = 150
-TASA_CRUCE          = 0.85
-TASA_MUTACION       = 0.15
-TORNEO_K            = 5       # participantes en selección por torneo
-ELITISMO            = 5       # individuos élite que pasan directamente
+# ──────────────────────────────────────────────
+POPULATION_SIZE   = 100
+MAX_GENERATIONS   = 200
+CROSSOVER_RATE    = 0.9
+MUTATION_RATE     = 0.2
+PLANNING_HORIZON  = 7          # días de planificación
 
-# ─────────────────────────────────────────────
-#  PENALIZACIONES DE FITNESS
-# ─────────────────────────────────────────────
-PENALIZACION_ESPECIALIDAD  = 200   # cama incompatible con tipo de paciente
-PENALIZACION_SOLAPAMIENTO  = 150   # camas con fechas superpuestas
-PENALIZACION_MEDICOS       = 180   # excede límite de camas según médicos
-PENALIZACION_DIA_INVALIDO  = 100   # día fuera del rango 0-7
+# ──────────────────────────────────────────────
+#  POISSON: llegadas diarias de emergencias
+# ──────────────────────────────────────────────
+POISSON_LAMBDA = 3.0           # media de llegadas de emergencia por día
 
-# ─────────────────────────────────────────────
-#  SEMANA DE PLANIFICACIÓN
-# ─────────────────────────────────────────────
-DIAS_SEMANA = 7    # Lunes=1 … Domingo=7
-DIA_NO_ADMITIDO = 0
+# ──────────────────────────────────────────────
+#  LOSS OF CHANCE  (gravedad electivos)
+# ──────────────────────────────────────────────
+LOSS_OF_CHANCE_VALUES = [0.1, 0.5, 0.9]
+
+# ──────────────────────────────────────────────
+#  TIPO DE PACIENTE  (categorías UCI)
+# ──────────────────────────────────────────────
+PATIENT_TYPES = ["adult", "pediatric", "neonatal"]
+
+# ──────────────────────────────────────────────
+#  SEEDS  (reproducibilidad)
+# ──────────────────────────────────────────────
+RANDOM_SEED = 42
