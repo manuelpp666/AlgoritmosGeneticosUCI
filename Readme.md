@@ -1,5 +1,5 @@
 
-pip install matplotlib
+#Opcional, el programa funciona igual# pip install matplotlib
 
 
 # Ejecución completa (200 generaciones, 100 individuos)

@@ -26,13 +26,6 @@ from config import (
 import config as cfg
 from patients import generar_pacientes_actuales, generar_lista_espera_electivos
 from engine import NSGA2_UCI
-from visualize import (
-    imprimir_resumen_pareto,
-    imprimir_programa,
-    graficar_frente_pareto,
-    graficar_convergencia,
-    graficar_mapa_calor_ocupacion,
-)
 
 
 # ══════════════════════════════════════════════
@@ -115,23 +108,6 @@ def principal() -> None:
     elapsed = time.time() - t_start
 
     print(f"\n  Tiempo total: {elapsed:.1f}s")
-
-    # ── Reporte en consola ──
-    imprimir_resumen_pareto(frente_pareto)
-
-    # ── Mejor solución por ocupación ──
-    if frente_pareto:
-        mejor_ocupacion = min(frente_pareto, key=lambda x: x.aptitud[0])   # mínimo = máx ocupación
-        imprimir_programa(mejor_ocupacion, title="Mejor Agenda (mayor ocupación)")
-
-    # ── Gráficos ──
-    if not args.no_plots:
-        graficar_frente_pareto(frente_pareto, out_dir=args.out_dir)
-        graficar_convergencia(motor.historial, out_dir=args.out_dir)
-        if frente_pareto:
-            mejor_ocupacion = min(frente_pareto, key=lambda x: x.aptitud[0])
-            graficar_mapa_calor_ocupacion(mejor_ocupacion, out_dir=args.out_dir)
-        print(f"\n  Gráficos guardados en: ./{args.out_dir}/")
 
     # ── Exportar resultados CSV ──
     _exportar_csv(frente_pareto, motor.historial, args.out_dir)
