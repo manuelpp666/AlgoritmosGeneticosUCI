@@ -22,7 +22,7 @@ for tipo_cama, ids in CAMAS.items():
 #  REGLA MÉDICO / PACIENTE  (1:6)
 # ──────────────────────────────────────────────
 OPCIONES_MÉDICOS_TURNO = {5: 28, 4: 24, 3: 18}   # médicos → camas_max
-MÉDICOS_DEFECTO = 5
+MÉDICOS_DEFECTO = 4
 CAMAS_ACTIVAS_MAX = OPCIONES_MÉDICOS_TURNO[MÉDICOS_DEFECTO]
 
 # ──────────────────────────────────────────────

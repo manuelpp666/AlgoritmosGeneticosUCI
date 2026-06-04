@@ -70,7 +70,7 @@ def principal() -> None:
     cfg.GENERACIONES_MAX  = args.gens
     cfg.TAMAÑO_POBLACIÓN  = args.pop
     cfg.CAMAS_ACTIVAS_MAX  = OPCIONES_MÉDICOS_TURNO[args.doctors]
-    cfg.MÉDICOS_POR_DEFECTO  = args.doctors
+    cfg.MÉDICOS_DEFECTO  = args.doctors
 
     os.makedirs(args.out_dir, exist_ok=True)
 
