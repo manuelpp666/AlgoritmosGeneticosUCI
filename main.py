@@ -27,6 +27,7 @@ from config import (
 import config as cfg
 from patients import generar_pacientes_actuales, generar_lista_espera_electivos
 from engine import NSGA2_UCI
+from chromosome import Individuo
 
 
 # ══════════════════════════════════════════════
@@ -38,6 +39,91 @@ BANNER = """
 ║      28 camas  |  Adulto / Pediátrico / Neonatal             ║
 ╚══════════════════════════════════════════════════════════════╝
 """
+
+
+# ══════════════════════════════════════════════
+#  IMPRESIÓN DE AGENDAS DETALLADAS
+# ══════════════════════════════════════════════
+def imprimir_agenda_detallada(
+    individuo: Individuo,
+    nombre_estrategia: str,
+    ocupacion: float,
+    retraso: float,
+    tasa_emerg: float,
+) -> None:
+    """
+    Imprime la agenda semanal detallada de un individuo con formato bonito.
+    """
+    print(f"\n────────────────────────────────────────────────────────")
+    print(f"  {nombre_estrategia}")
+    print(f"────────────────────────────────────────────────────────")
+    print(f"  Ocupación: {ocupacion:.1%}  |  Retraso: {retraso:.2f}  |  Emergencias: {tasa_emerg:.1%}")
+    print()
+
+    for día in range(1, HORIZONTE_PLANIFICACIÓN + 1):
+        pacientes_día = individuo.programa.get(día, [])
+        n_electivos = len(pacientes_día)
+
+        print(f"  DÍA {día}  ({n_electivos} electivos programados)")
+        if not pacientes_día:
+            print(f"    (sin pacientes electivos)")
+        else:
+            for p in pacientes_día:
+                retraso_txt = f"  [retraso: {p.retraso}d]" if p.retraso > 0 else ""
+                print(
+                    f"    🟠 ID:{p.id_paciente:<6} Tipo:{p.tipo_paciente:<12} "
+                    f"LOS:{p.los}d  LoC:{p.pérdida_oportunidad}{retraso_txt}"
+                )
+        print()
+
+
+def imprimir_3_estrategias_extremas(
+    motor: "NSGA2_UCI",
+    lista_espera_electivos: list,
+) -> None:
+    """
+    Imprime las 3 mejores estrategias (extremos del Frente de Pareto).
+    """
+    est1, est2, est3 = motor.obtener_3_estrategias_extremas()
+    estrategias = [e for e in [est1, est2, est3] if e is not None]
+
+    if not estrategias:
+        print("\n  ⚠ No hay soluciones en el Frente de Pareto.")
+        return
+
+    titulos = [
+        "Mejor Agenda (Mayor Ocupación)",
+        "Estrategia 2 (Equilibrada)" if len(estrategias) > 1 else "",
+        "Estrategia 3 (Menor Retraso)" if len(estrategias) > 2 else "",
+    ]
+
+    print("\n═════════════════════════════════════════════════════════════════")
+    print("  FRENTE DE PARETO ÓPTIMO - UCI Hospital Regional Lambayeque")
+    print("═════════════════════════════════════════════════════════════════")
+
+    # Resumen en tabla
+    print("    #   Ocupación   Retraso   Emergencias  Rango")
+    print("─────────────────────────────────────────────────────────────────")
+    for i, est in enumerate(estrategias, 1):
+        ocup = (1.0 - est.aptitud[0]) * 100
+        ret = est.aptitud[1]
+        emerg = (1.0 - est.aptitud[2]) * 100
+        print(f"    {i}       {ocup:>5.1f}%      {ret:>4.2f}         {emerg:>5.1f}%      {est.rango}")
+
+    print("═════════════════════════════════════════════════════════════════")
+
+    # Agendas detalladas
+    for i, est in enumerate(estrategias, 1):
+        ocup_pct = (1.0 - est.aptitud[0]) * 100
+        ret = est.aptitud[1]
+        emerg_pct = (1.0 - est.aptitud[2]) * 100
+        imprimir_agenda_detallada(
+            est,
+            f"Estrategia {i}",
+            ocup_pct / 100.0,
+            ret,
+            emerg_pct / 100.0,
+        )
 
 
 # ══════════════════════════════════════════════
@@ -110,71 +196,22 @@ def principal() -> None:
 
     print(f"\n  Tiempo total: {elapsed:.1f}s")
 
-    # ── Mostrar reportes en consola integrados de visualize.py ──
-    _imprimir_resumen_pareto_consola(frente_pareto)
-    
-    # Buscar el mejor individuo con mayor ocupación (menor valor en aptitud[0] debido a la minimización)
-    if frente_pareto:
-        mejor_individuo = min(frente_pareto, key=lambda ind: ind.aptitud[0])
-        _imprimir_programa_consola(mejor_individuo, "Mejor Agenda (mayor ocupación)")
+    # ── Mostrar 3 estrategias extremas ──
+    imprimir_3_estrategias_extremas(motor, lista_espera_electivos)
 
     # ── Exportar resultados CSV ──
     _exportar_csv(frente_pareto, motor.historial, args.out_dir)
+    _exportar_agendas_csv(motor, args.out_dir)
 
     print("\n  ✓ Proceso completado.\n")
-
 
 # ══════════════════════════════════════════════
 #  MÉTODOS REUBICADOS DE VISUALIZE.PY
 # ══════════════════════════════════════════════
-def _imprimir_resumen_pareto_consola(frente_pareto: list) -> None:
-    print("\n" + "═" * 65)
-    print("  FRENTE DE PARETO ÓPTIMO - UCI Hospital Regional Lambayeque")
-    print("═" * 65)
-    print(f"  {'#':>3}  {'Ocupación':>10}  {'Retraso':>8}  {'Emergencias':>12}  {'Rango':>5}")
-    print("─" * 65)
-    for i, individuo in enumerate(frente_pareto, 1):
-        occ   = (1.0 - individuo.aptitud[0]) * 100
-        retraso = individuo.aptitud[1]
-        emerg = (1.0 - individuo.aptitud[2]) * 100
-        print(f"  {i:>3}  {occ:>9.1f}%  {retraso:>8.2f}  {emerg:>11.1f}%  {individuo.rango:>5}")
-    print("═" * 65)
-
-
-def _imprimir_programa_consola(individuo: any, title: str = "Agenda Semanal UCI") -> None:
-    iconos_categorías = {"actual": "🟢", "emergencia": "🔵", "electivo": "🟠"}
-
-    print(f"\n{'─'*60}")
-    print(f"  {title}")
-    print(f"{'─'*60}")
-
-    for día in range(1, HORIZONTE_PLANIFICACIÓN + 1):
-        # Protegemos el acceso en caso de que el programa guarde las claves de forma diferente
-        electivos = individuo.programa.get(día, []) if hasattr(individuo.programa, 'get') else individuo.programa[día]
-        
-        # Filtrar solo pacientes de tipo 'electivo' tal como requería tu output original
-        electivos_filtrados = [p for p in electivos if getattr(p, 'categoría', '') == 'electivo']
-        
-        print(f"\nDÍA {día} ({len(electivos_filtrados)} electivos programados)")
-        if not electivos_filtrados:
-            print("    (sin pacientes electivos)")
-            continue
-            
-        for p in electivos:
-            ico = iconos_categorías.get(p.categoría, "⚪")
-            retraso_str = f" [retraso: {p.retraso}d]" if p.retraso > 0 else ""
-            print(
-                f"    {ico} ID:{p.id_paciente:<5} "
-                f"Tipo:{p.tipo_paciente:<11} "
-                f"LOS:{p.los}d  "
-                f"LoC:{p.pérdida_oportunidad}"
-                f"{retraso_str}"
-            )
 
 
 # ══════════════════════════════════════════════
 #  EXPORTAR CSV
-# ══════════════════════════════════════════════
 def _exportar_csv(
     frente_pareto:  list,
     historial: list[dict],
@@ -182,7 +219,7 @@ def _exportar_csv(
 ) -> None:
     import csv
 
-    # Frente de Pareto
+    # Frente de Pareto - Métricas
     ruta_pareto = os.path.join(out_dir, "soluciones_pareto.csv")
     with open(ruta_pareto, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -214,6 +251,56 @@ def _exportar_csv(
                     round(h.get("mejor_emergencia", 0) * 100, 2),
                 ])
         print(f"  CSV Convergencia guardado: {ruta_convergencia}")
+
+
+def _exportar_agendas_csv(
+    motor: "NSGA2_UCI",
+    out_dir: str,
+) -> None:
+    """
+    Exporta las agendas de las 3 estrategias extremas a archivos CSV detallados.
+    """
+    import csv
+    
+    est1, est2, est3 = motor.obtener_3_estrategias_extremas()
+    estrategias = [
+        (est1, "estrategia_1_max_ocupacion"),
+        (est2, "estrategia_2_equilibrada"),
+        (est3, "estrategia_3_otros"),
+    ]
+
+    for est, nombre_archivo in estrategias:
+        if est is None:
+            continue
+
+        ruta_agenda = os.path.join(out_dir, f"agenda_{nombre_archivo}.csv")
+        with open(ruta_agenda, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            
+            # Encabezado con métricas
+            ocup_pct = (1.0 - est.aptitud[0]) * 100
+            ret = est.aptitud[1]
+            emerg_pct = (1.0 - est.aptitud[2]) * 100
+            writer.writerow(["MÉTRICAS"])
+            writer.writerow(["Ocupación", "Retraso", "Emergencias"])
+            writer.writerow([f"{ocup_pct:.1f}%", f"{ret:.2f}", f"{emerg_pct:.1f}%"])
+            writer.writerow([])  # Línea en blanco
+            
+            # Agendas por día
+            writer.writerow(["DÍA", "ID_Paciente", "Tipo", "LOS", "LoC", "Retraso"])
+            for día in range(1, HORIZONTE_PLANIFICACIÓN + 1):
+                pacientes_día = est.programa.get(día, [])
+                for p in pacientes_día:
+                    writer.writerow([
+                        día,
+                        p.id_paciente,
+                        p.tipo_paciente,
+                        p.los,
+                        p.pérdida_oportunidad,
+                        p.retraso,
+                    ])
+        
+        print(f"  CSV Agenda guardado: {ruta_agenda}")
 
 
 if __name__ == "__main__":

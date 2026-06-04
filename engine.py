@@ -6,7 +6,7 @@ Hospital Regional de Lambayeque
 from __future__ import annotations
 import random
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 from config import (
     TAMAÑO_POBLACIÓN, GENERACIONES_MAX,
@@ -171,3 +171,48 @@ class NSGA2_UCI:
         self.frente_pareto = [ind for ind in self.población if ind.rango == 1]
         print(f"\n[NSGA-II] Finalizado. Frente de Pareto: {len(self.frente_pareto)} soluciones.")
         return self.frente_pareto
+
+    # ── Estrategias extremas ──────────────────
+    def obtener_3_estrategias_extremas(self) -> tuple[Optional[Individuo], Optional[Individuo], Optional[Individuo]]:
+        """
+        Extrae los 3 individuos más representativos del Frente de Pareto:
+        1. Máxima ocupación (minimiza f1)
+        2. Máxima tasa de emergencias (minimiza f3)
+        3. Más equilibrado (compromiso entre objetivos)
+        
+        Retorna: (mejor_ocupación, mejor_emergencias, equilibrado)
+        """
+        if not self.frente_pareto:
+            return None, None, None
+
+        # 1. Mejor ocupación: minimizar f1 (1 - ocupación)
+        mejor_ocup = min(self.frente_pareto, key=lambda x: x.aptitud[0])
+
+        # 2. Mejor emergencias: minimizar f3 (1 - tasa_emergencias)
+        mejor_emerg = min(self.frente_pareto, key=lambda x: x.aptitud[2])
+
+        # 3. Más equilibrado: minimizar suma ponderada (o distancia euclidiana)
+        mejor_equilib = min(
+            self.frente_pareto,
+            key=lambda x: (
+                0.3 * x.aptitud[0] +
+                0.3 * x.aptitud[1] +
+                0.4 * x.aptitud[2]
+            )
+        )
+
+        # Evitar repeticiones
+        estrategias = [mejor_ocup]
+        if mejor_emerg not in estrategias:
+            estrategias.append(mejor_emerg)
+        if mejor_equilib not in estrategias and len(estrategias) < 3:
+            estrategias.append(mejor_equilib)
+
+        # Si hay repeticiones, llenar con siguientes mejores
+        while len(estrategias) < 3 and len(self.frente_pareto) > len(estrategias):
+            for ind in sorted(self.frente_pareto, key=lambda x: sum(x.aptitud)):
+                if ind not in estrategias:
+                    estrategias.append(ind)
+                    break
+
+        return tuple(estrategias) if len(estrategias) >= 1 else (None, None, None)
