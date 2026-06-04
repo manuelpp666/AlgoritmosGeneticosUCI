@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (
     TAMAÑO_POBLACIÓN, GENERACIONES_MAX,
     OPCIONES_MÉDICOS_TURNO, SEMILLA_ALEATORIA,
+    HORIZONTE_PLANIFICACIÓN,
 )
 import config as cfg
 from patients import generar_pacientes_actuales, generar_lista_espera_electivos
@@ -70,7 +71,7 @@ def principal() -> None:
     cfg.GENERACIONES_MAX  = args.gens
     cfg.TAMAÑO_POBLACIÓN  = args.pop
     cfg.CAMAS_ACTIVAS_MAX  = OPCIONES_MÉDICOS_TURNO[args.doctors]
-    cfg.MÉDICOS_DEFECTO  = args.doctors
+    cfg.MÉDICOS_POR_DEFECTO  = args.doctors
 
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -109,10 +110,66 @@ def principal() -> None:
 
     print(f"\n  Tiempo total: {elapsed:.1f}s")
 
+    # ── Mostrar reportes en consola integrados de visualize.py ──
+    _imprimir_resumen_pareto_consola(frente_pareto)
+    
+    # Buscar el mejor individuo con mayor ocupación (menor valor en aptitud[0] debido a la minimización)
+    if frente_pareto:
+        mejor_individuo = min(frente_pareto, key=lambda ind: ind.aptitud[0])
+        _imprimir_programa_consola(mejor_individuo, "Mejor Agenda (mayor ocupación)")
+
     # ── Exportar resultados CSV ──
     _exportar_csv(frente_pareto, motor.historial, args.out_dir)
 
     print("\n  ✓ Proceso completado.\n")
+
+
+# ══════════════════════════════════════════════
+#  MÉTODOS REUBICADOS DE VISUALIZE.PY
+# ══════════════════════════════════════════════
+def _imprimir_resumen_pareto_consola(frente_pareto: list) -> None:
+    print("\n" + "═" * 65)
+    print("  FRENTE DE PARETO ÓPTIMO - UCI Hospital Regional Lambayeque")
+    print("═" * 65)
+    print(f"  {'#':>3}  {'Ocupación':>10}  {'Retraso':>8}  {'Emergencias':>12}  {'Rango':>5}")
+    print("─" * 65)
+    for i, individuo in enumerate(frente_pareto, 1):
+        occ   = (1.0 - individuo.aptitud[0]) * 100
+        retraso = individuo.aptitud[1]
+        emerg = (1.0 - individuo.aptitud[2]) * 100
+        print(f"  {i:>3}  {occ:>9.1f}%  {retraso:>8.2f}  {emerg:>11.1f}%  {individuo.rango:>5}")
+    print("═" * 65)
+
+
+def _imprimir_programa_consola(individuo: any, title: str = "Agenda Semanal UCI") -> None:
+    iconos_categorías = {"actual": "🟢", "emergencia": "🔵", "electivo": "🟠"}
+
+    print(f"\n{'─'*60}")
+    print(f"  {title}")
+    print(f"{'─'*60}")
+
+    for día in range(1, HORIZONTE_PLANIFICACIÓN + 1):
+        # Protegemos el acceso en caso de que el programa guarde las claves de forma diferente
+        electivos = individuo.programa.get(día, []) if hasattr(individuo.programa, 'get') else individuo.programa[día]
+        
+        # Filtrar solo pacientes de tipo 'electivo' tal como requería tu output original
+        electivos_filtrados = [p for p in electivos if getattr(p, 'categoría', '') == 'electivo']
+        
+        print(f"\nDÍA {día} ({len(electivos_filtrados)} electivos programados)")
+        if not electivos_filtrados:
+            print("    (sin pacientes electivos)")
+            continue
+            
+        for p in electivos:
+            ico = iconos_categorías.get(p.categoría, "⚪")
+            retraso_str = f" [retraso: {p.retraso}d]" if p.retraso > 0 else ""
+            print(
+                f"    {ico} ID:{p.id_paciente:<5} "
+                f"Tipo:{p.tipo_paciente:<11} "
+                f"LOS:{p.los}d  "
+                f"LoC:{p.pérdida_oportunidad}"
+                f"{retraso_str}"
+            )
 
 
 # ══════════════════════════════════════════════
