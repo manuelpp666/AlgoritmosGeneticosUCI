@@ -23,6 +23,7 @@ from config import (
     TAMAÑO_POBLACIÓN, GENERACIONES_MAX,
     OPCIONES_MÉDICOS_TURNO, SEMILLA_ALEATORIA,
     HORIZONTE_PLANIFICACIÓN,
+    MÉDICOS_DEFECTO
 )
 import config as cfg
 from patients import generar_pacientes_actuales, generar_lista_espera_electivos
@@ -135,7 +136,7 @@ def analizar_argumentos() -> argparse.Namespace:
                    help=f"Generaciones máximas (default: {GENERACIONES_MAX})")
     p.add_argument("--pop",      type=int, default=TAMAÑO_POBLACIÓN,
                    help=f"Tamaño de población (default: {TAMAÑO_POBLACIÓN})")
-    p.add_argument("--doctors",  type=int, choices=[3, 4, 5], default=5,
+    p.add_argument("--doctors",  type=int, choices=[3, 4, 5], default=MÉDICOS_DEFECTO,
                    help="Médicos por turno: 3→18 camas, 4→24, 5→28 (default: 5)")
     p.add_argument("--seed",     type=int, default=SEMILLA_ALEATORIA,
                    help=f"Semilla aleatoria (default: {SEMILLA_ALEATORIA})")
